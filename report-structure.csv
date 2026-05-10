@@ -1,0 +1,19 @@
+achievement_id,ref_character,achievement_name,dialogue,description,trigger_type,trigger_rule,v1_available,v1_data_source,notes
+ACH001,น้าค่อม,ให้พี่เดินสะดวกเถอะไอ่สอง,,ตายมากที่สุดในห้อง,comparison,deaths = highest ในกลุ่ม 3 คน,YES,deaths avg จาก Henrik matches,ดูจาก avg deaths เปรียบเทียบกัน
+ACH002,น้าค่อม,มันจ้าซะเหลือเกิน,สงสัยจะเป็นหลอดซีนอน,ปล่อย flash เยอะ แต่ assist น้อย,ability_usage,flash cast count สูง + assist rate ต่ำ,NO,ต้องการ ability_casts data ใน rounds,Henrik v3 มี ability_casts ใน player_stats แต่ต้องตรวจสอบ
+ACH003,เปิ้ล,ลูก 357 นี่หว่า,ไอ่นี่มือปืนมีนายเว้ย เด็กซุ้มแน่นอน,KDA สูง แต่ econ ต่ำ,economy,kd >= 1.2 + economy score ต่ำ,PARTIAL,KD available แต่ economy ต้องการ round economy data,แสดงเฉพาะส่วน KD สูงก่อน
+ACH004,เพียว,เอาแบบ ดำเงาหรือดำด้าน?,หมด! ดำหมดเหรอ? อย่า racist สิเตง,เล่น viper/phoenix/astra เป็นหลัก,agent_pref,agent ∈ [Viper/Phoenix/Astra] มากกว่า 50% ของ 3 แมช,YES,agent field จาก Henrik matches,ใช้ most_played agent
+ACH005,4king,เดี๋ยวกูยิงเป็นทิคแทคโทเลย,,ทำ 3K ตั้งแต่ 2 ครั้งขึ้นไปใน 3 เกมที่ดู,multi_kill,multi_kills.3k >= 2,YES,rounds data จาก Henrik v3,ข้อมูลนี้พร้อมแล้ว
+ACH006,โหน่ง,มึงเอาไอ่เท่งมาฮาแต่เอากูมาฆ่า,ตายกูไม่ว่า เอาตีนเขี่ยหน้า,KDA ต่ำที่สุดในห้องแบบห่าง,comparison,kd = lowest ในกลุ่ม AND ห่างจาก 2nd lowest >= 0.3,YES,kd avg จาก Henrik,ต้องมีช่องห่างพอสมควรไม่ใช่แค่ต่ำสุด
+ACH007,พระอิศวร,ใครคือสุดยอดพระเจ้า,พระอิศวรจงเจริญ สุดยอด,ทำ ACE ตั้งแต่ 2 ครั้งขึ้นไปใน 3 เกม,multi_kill,multi_kills.ace >= 2,YES,rounds data จาก Henrik v3,ข้อมูลนี้พร้อมแล้ว
+ACH008,โก๊ะตี๋,จะมีก็มีอยู่แผลเดียวเนี่ย ที่ไหล่,เมาตกรถเมล์ แถ แท่ดๆ,รับดาเมจสูงสุดในทีม,comparison,damage_received = highest ในกลุ่ม,NO,ต้องการ damage_received ≠ damage_made,Henrik ให้ damage_made แต่ไม่มี damage_received โดยตรง
+ACH009,N/A,หมออออออออ,แต๊งยู,ฮีล skill เยอะมาก (Skye/Sage/Miku),ability_usage,healing ability cast count สูง + agent ∈ [Skye/Sage/KAY-O healer],NO,ต้องการ ability_casts breakdown,ต้องการ round-level ability data
+ACH010,N/A,ไอ่หมอออออ,ฮีลลลลลล,ฮีล skill น้อย (Skye/Sage/Miku),ability_usage,healing cast count ต่ำ + agent ∈ healer class,NO,ต้องการ ability_casts breakdown,คู่กับ ACH009
+ACH011,N/A,อาปัดชะเย,อาปัดติเถเถนา,Sage ใช้ ultimate มากกว่า 2 ครั้ง,ability_usage,agent = Sage + ult cast >= 2,NO,ต้องการ ult cast count ใน rounds,Henrik v3 อาจมี ability_casts.c แต่ต้องตรวจสอบ
+ACH012,องอาจ,กูผู้กออวองอาจนะเว้ย,ผู้กองเอาปืนมา,เข้าไซท์คนเดียว ตายบ่อย,playstyle,kills สูง + deaths สูง + kd < 1,YES,kills + deaths avg จาก Henrik,ใช้ kills สูงกว่า avg room + deaths สูงกว่า avg room
+ACH013,โก๊ะตี๋,กูผู้กออวองอาจ แต่รอด,เมาตกรถเมล์ แต่ไม่ตาย,เข้าไซท์คนเดียว รอด - best KDA,playstyle,kills = highest ในกลุ่ม AND kd >= 1.5 AND deaths < avg group,YES,kills + deaths + kd จาก Henrik,
+ACH014,ทาจิมาด้า,คุณทาจิมาดา ทำอะไรสักอย่างสิ,ทำไมถึงเอาแต่ดูล่ะครับ,K/D/A ต่ำทุกอย่าง เหมือน bait เพื่อน,comparison,kills + deaths + assists = ต่ำสุดทุกตัวเมื่อเทียบในกลุ่ม,YES,KDA avg จาก Henrik,ต้องต่ำสุดใน >= 2/3 หมวด
+ACH015,N/A,Valorant กำลังร้องไห้,วิธีการเล่นของนาย ทำให้ RIOT เจ็บปวด,ใช้สกิลน้อยมาก,ability_usage,ability cast total ต่ำมาก,NO,ต้องการ ability_casts data,
+ACH016,N/A,ไม่มีเวลาให้เสียใจ,ตอนต่อไป โกฮังลงสนาม,clutch 3v1/4v1/5v1 รวม >= 3 ครั้ง,clutch,clutch_3plus >= 3,NO,ต้องการ round timeline analysis,ซับซ้อนสุด - ต้องการ round death order
+ACH017,N/A,40-0 นี่มึงเล่นบอลหรือเป่ากบ!?,N/A,ชนะด้วย 40 kill หรือ round score 13-0,score,total_kills_single_game >= 40 OR round_score 13-0,PARTIAL,kills per game available แต่ round score ต้องตรวจสอบ,ข้อมูล per-game kills มีอยู่ใน parsing loop แล้ว
+ACH018,ซมโต,ซมโต ซมโต๊ย ตูบายขะเนี๊ย,เปิดไมค์พูดตามนี้,botfrag 2/3 เกมล่าสุด,comparison,ต่ำสุดใน KDA ใน >= 2/3 แมชที่ดู,YES,per-game KDA จาก Henrik,ต้องเก็บ per-game data แยก ไม่ใช่แค่ avg

@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VALO COACH AI 🎯</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0f1923;color:#ece8e1;font-family:'Segoe UI',sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:2rem 1rem 5rem}
+    h1{color:#ff4655;font-size:2.2rem;font-weight:900;letter-spacing:6px;text-transform:uppercase;margin-bottom:.3rem}
+    .subtitle{color:#768079;margin-bottom:2rem;font-size:.9rem;text-align:center}
+
+    /* ── Input Card ── */
+    .card{background:#1f2731;border-radius:12px;padding:1.75rem;width:100%;max-width:480px;border:1px solid #2a3441}
+    .player-row{display:flex;align-items:center;gap:.5rem;margin-bottom:1rem}
+    .player-row label{color:#768079;font-size:.72rem;text-transform:uppercase;letter-spacing:1px;width:64px;flex-shrink:0}
+    .player-row input{flex:1;background:#0f1923;border:1px solid #2a3441;border-radius:6px;padding:.7rem .9rem;color:#ece8e1;font-size:.95rem;transition:border-color .2s}
+    .player-row input:focus{outline:none;border-color:#ff4655}
+    .player-row input::placeholder{color:#3a4550}
+    .player-row .remove-btn{background:none;border:1px solid #2a3441;border-radius:6px;color:#768079;cursor:pointer;padding:.5rem .7rem;font-size:.85rem;transition:all .2s;flex-shrink:0}
+    .player-row .remove-btn:hover{border-color:#ff4655;color:#ff4655}
+    .add-btn{width:100%;background:none;border:1px dashed #2a3441;border-radius:8px;padding:.65rem;color:#768079;font-size:.85rem;cursor:pointer;transition:all .2s;margin-bottom:1rem}
+    .add-btn:hover{border-color:#ff4655;color:#ff4655}
+    .btn{width:100%;background:#ff4655;border:none;border-radius:8px;padding:.95rem;color:#fff;font-size:1rem;font-weight:700;cursor:pointer;letter-spacing:2px;text-transform:uppercase;transition:background .2s}
+    .btn:hover{background:#ff6b78}
+    .btn:disabled{background:#3a4550;cursor:not-allowed}
+    .error-msg{color:#ff4655;text-align:center;margin-top:.7rem;font-size:.88rem;min-height:1.1rem}
+    .loading{text-align:center;color:#768079;padding:1.5rem;display:none;font-size:1rem}
+    .loading.show{display:block}
+
+    /* ── Slide Panel ── */
+    .slides-wrapper{width:100%;max-width:520px;margin-top:1.5rem;display:none}
+    .slides-wrapper.show{display:block}
+    .slide-tabs{display:flex;gap:.35rem;margin-bottom:.7rem;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+    .slide-tabs::-webkit-scrollbar{display:none}
+    .slide-tab{background:#1f2731;border:1px solid #2a3441;border-radius:20px;padding:.38rem .9rem;color:#768079;font-size:.78rem;cursor:pointer;white-space:nowrap;transition:all .2s;flex-shrink:0}
+    .slide-tab.active{background:#ff4655;border-color:#ff4655;color:#fff;font-weight:700}
+    .slides-container{overflow:hidden;border-radius:12px}
+    .slides-track{display:flex;transition:transform .35s cubic-bezier(.4,0,.2,1)}
+    .slide{min-width:100%;background:#1f2731;border-radius:12px;padding:1.5rem;border:1px solid #2a3441;overflow-y:auto}
+
+    /* ── Player header ── */
+    .player-header{display:flex;align-items:center;gap:.9rem;margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:1px solid #2a3441}
+    .agent-avatar{width:50px;height:50px;border-radius:9px;object-fit:cover;background:#2a3441;flex-shrink:0}
+    .player-meta{flex:1}
+    .player-name{font-size:1rem;font-weight:700;color:#ece8e1}
+    .player-agent{font-size:.78rem;color:#768079;margin-top:.15rem}
+    .player-wl{text-align:right;font-size:.82rem}
+    .win{color:#4ade80;font-weight:700}
+    .loss{color:#ff4655;font-weight:700}
+
+    /* ── Achievements ── */
+    .section{margin-bottom:1.25rem}
+    .section-title{font-size:.68rem;text-transform:uppercase;letter-spacing:1.5px;color:#768079;margin-bottom:.5rem}
+    .ach-item{background:rgba(255,70,85,.07);border:1px solid rgba(255,70,85,.2);border-radius:8px;padding:.6rem .85rem;margin-bottom:.4rem}
+    .ach-name{font-size:.88rem;font-weight:700;color:#ff4655}
+    .ach-dialogue{font-size:.77rem;color:#768079;margin-top:.1rem;font-style:italic}
+    .ach-reason{font-size:.72rem;color:#3a8050;margin-top:.25rem;border-top:1px solid rgba(255,70,85,.12);padding-top:.25rem}
+
+    /* ── Stats grid ── */
+    .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-bottom:1.1rem}
+    .stat-box{background:#0f1923;border-radius:7px;padding:.6rem .4rem;text-align:center}
+    .stat-box.wide{grid-column:span 3}
+    .stat-box.half{grid-column:span 1}
+    .sbl{font-size:.62rem;color:#768079;text-transform:uppercase;letter-spacing:1px;margin-bottom:.25rem}
+    .sbv{font-size:1.05rem;font-weight:700}
+    .good{color:#4ade80}
+    .warn{color:#facc15}
+    .bad{color:#ff4655}
+
+    /* ── Multi-kill ── */
+    .mk-row{display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:1.1rem}
+    .mk-badge{border-radius:5px;padding:.2rem .55rem;font-size:.76rem;font-weight:700}
+    .mk-2k{background:rgba(255,70,85,.12);border:1px solid rgba(255,70,85,.3);color:#ff4655}
+    .mk-3k{background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:#4ade80}
+    .mk-4k{background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.3);color:#a78bfa}
+    .mk-ace{background:rgba(250,204,21,.12);border:1px solid rgba(250,204,21,.3);color:#facc15}
+    .cl-badge{background:rgba(251,146,60,.12);border:1px solid rgba(251,146,60,.3);color:#fb923c;border-radius:5px;padding:.2rem .55rem;font-size:.76rem;font-weight:700}
+
+    /* ── Weapon ── */
+    .weapon-row{display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:1.1rem}
+    .wpn-badge{background:#0f1923;border:1px solid #2a3441;border-radius:5px;padding:.2rem .55rem;font-size:.76rem;color:#ece8e1}
+    .wpn-flag{background:rgba(250,204,21,.08);border:1px solid rgba(250,204,21,.2);border-radius:5px;padding:.2rem .55rem;font-size:.76rem;color:#facc15}
+
+    /* ── AI Report sections ── */
+    .ai-section{background:#0f1923;border-radius:8px;padding:.85rem;margin-bottom:.7rem}
+    .ai-section-title{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:.55rem}
+    .playstyle-name{font-size:1rem;font-weight:700;color:#ff4655;margin-bottom:.35rem}
+    .ai-because{font-size:.78rem;color:#768079;margin-bottom:.2rem}
+    .ai-because span{color:#ece8e1}
+    .ai-tendency{font-size:.82rem;color:#4ade80;margin-top:.35rem;font-style:italic}
+    .trait-item{margin-bottom:.65rem;padding-bottom:.65rem;border-bottom:1px solid #1f2731}
+    .trait-item:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+    .trait-name{font-size:.88rem;font-weight:700;color:#ece8e1;margin-bottom:.2rem}
+    .improve-text{font-size:.88rem;line-height:1.7;color:#d4d0cb}
+    .strong-icon{color:#4ade80}
+    .weak-icon{color:#ff4655}
+
+    /* ── Team slide ── */
+    .hindsight{display:inline-flex;align-items:center;gap:.4rem;margin-bottom:1rem;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);border-radius:8px;padding:.45rem .75rem;font-size:.83rem;color:#4ade80}
+    .hindsight.solo{background:rgba(118,128,121,.08);border-color:rgba(118,128,121,.25);color:#768079}
+    .mini-player{display:flex;align-items:center;gap:.55rem;background:#0f1923;border-radius:7px;padding:.55rem .8rem;margin-bottom:.4rem;font-size:.82rem}
+    .mini-img{width:26px;height:26px;border-radius:4px;object-fit:cover;background:#2a3441}
+    .mini-name{flex:1;font-weight:700}
+    .team-analysis{line-height:1.8;font-size:.9rem;color:#d4d0cb;white-space:pre-wrap;margin-bottom:1.25rem}
+    .donate{text-align:center;padding-top:1rem;border-top:1px solid #2a3441;color:#768079;font-size:.83rem}
+    .donate a{color:#ff4655;text-decoration:none;font-weight:700}
+
+    /* team invite slide */
+    .team-invite{text-align:center;padding:1.5rem .75rem}
+    .team-invite-icon{font-size:2.2rem;margin-bottom:.6rem}
+    .team-invite-title{color:#ece8e1;font-size:1rem;font-weight:700;margin-bottom:.4rem}
+    .team-invite-sub{color:#768079;font-size:.83rem;line-height:1.6;margin-bottom:1.25rem}
+    .invite-cta{display:inline-flex;align-items:center;gap:.5rem;background:rgba(255,70,85,.08);border:2px solid #ff4655;border-radius:10px;padding:.85rem 1.5rem;color:#ff4655;font-size:.95rem;font-weight:700;cursor:pointer;letter-spacing:1px;transition:all .22s;animation:invite-pulse 2.2s ease-in-out infinite}
+    .invite-cta:hover{background:#ff4655;color:#fff;transform:scale(1.04)}
+    @keyframes invite-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,70,85,.35)}50%{box-shadow:0 0 0 7px rgba(255,70,85,0)}}
+
+    footer{margin-top:3rem;color:#3a4550;font-size:.78rem;text-align:center}
+  </style>
+</head>
+<body>
+
+<h1>VALO COACH</h1>
+<p class="subtitle">AI วิเคราะห์ Valorant · 1-3 ผู้เล่น</p>
+
+<div class="card">
+  <div id="playerInputs">
+    <div class="player-row" data-idx="0">
+      <label>Player 1</label>
+      <input type="text" placeholder="RiotID#TAG">
+    </div>
+  </div>
+  <button class="add-btn" id="addBtn" onclick="addPlayer()">+ เพิ่มผู้เล่น (สูงสุด 3 คน)</button>
+  <button class="btn" id="analyzeBtn" onclick="analyze()">🎯 วิเคราะห์เลย</button>
+  <p class="error-msg" id="errorMsg"></p>
+</div>
+
+<div class="loading" id="loading">⚔️ โค้ชกำลังดูสถิติ...</div>
+
+<div class="slides-wrapper" id="slidesWrapper">
+  <div class="slide-tabs" id="slideTabs"></div>
+  <div class="slides-container">
+    <div class="slides-track" id="slidesTrack"></div>
+  </div>
+</div>
+
+<footer>Built with ❤️ + Claude AI · Data by Henrik Dev API</footer>
+
+<script>
+// ── Player input management ──────────────────────────────
+function addPlayer() {
+  const container = document.getElementById('playerInputs');
+  const count = container.querySelectorAll('.player-row').length;
+  if (count >= 3) return;
+
+  const row = document.createElement('div');
+  row.className = 'player-row';
+  row.dataset.idx = count;
+  row.innerHTML = `
+    <label>Player ${count + 1}</label>
+    <input type="text" placeholder="RiotID#TAG">
+    <button class="remove-btn" onclick="removePlayer(this)">✕</button>`;
+  container.appendChild(row);
+
+  if (count + 1 >= 3) document.getElementById('addBtn').style.display = 'none';
+}
+
+function removePlayer(btn) {
+  const row = btn.closest('.player-row');
+  row.remove();
+  // Relabel remaining rows
+  document.querySelectorAll('.player-row').forEach((r, i) => {
+    r.querySelector('label').textContent = `Player ${i + 1}`;
+  });
+  document.getElementById('addBtn').style.display = '';
+}
+
+function getPlayers() {
+  return [...document.querySelectorAll('.player-row input')]
+    .map(i => i.value.trim())
+    .filter(Boolean);
+}
+
+// ── Slide navigation ──────────────────────────────────────
+let currentSlide = 0;
+let totalSlides  = 0;
+
+function goToSlide(idx) {
+  currentSlide = idx;
+  document.getElementById('slidesTrack').style.transform = `translateX(-${idx * 100}%)`;
+  document.querySelectorAll('.slide-tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+}
+
+// ── Builders ─────────────────────────────────────────────
+function mkBadges(mk) {
+  return [
+    mk['ace'] > 0 && `<span class="mk-badge mk-ace">⚡ ${mk['ace']}x ACE</span>`,
+    mk['4k']  > 0 && `<span class="mk-badge mk-4k">💜 ${mk['4k']}x 4K</span>`,
+    mk['3k']  > 0 && `<span class="mk-badge mk-3k">✅ ${mk['3k']}x 3K</span>`,
+    mk['2k']  > 0 && `<span class="mk-badge mk-2k">🔥 ${mk['2k']}x 2K</span>`,
+  ].filter(Boolean).join('');
+}
+
+function clBadges(cl) {
+  return [
+    cl['1v5'] > 0 && `<span class="cl-badge">🔥 ${cl['1v5']}x 1v5</span>`,
+    cl['1v4'] > 0 && `<span class="cl-badge">💪 ${cl['1v4']}x 1v4</span>`,
+    cl['1v3'] > 0 && `<span class="cl-badge">⚡ ${cl['1v3']}x 1v3</span>`,
+    cl['1v2'] > 0 && `<span class="cl-badge">✅ ${cl['1v2']}x 1v2</span>`,
+  ].filter(Boolean).join('');
+}
+
+function weaponBadges(ws) {
+  if (!ws) return '';
+  const kills = Object.entries(ws.weapon_kills || {}).slice(0, 4);
+  const wpns  = kills.map(([w, k]) => `<span class="wpn-badge">${w} ×${k}</span>`).join('');
+  const flags = [
+    ws.flags?.is_operator && `<span class="wpn-flag">🎯 OP Player</span>`,
+    ws.flags?.is_sniper   && !ws.flags?.is_operator && `<span class="wpn-flag">🔭 Sniper</span>`,
+  ].filter(Boolean).join('');
+  return `${wpns} ${flags}`;
+}
+
+function aiReportHtml(ai) {
+  if (!ai) return '';
+  const ps = ai.playstyle;
+  const playstyleHtml = ps ? `
+    <div class="ai-section">
+      <div class="ai-section-title" style="color:#ff4655">🎯 Playstyle</div>
+      <div class="playstyle-name">${ps.name}</div>
+      <div class="ai-because">เพราะ <span>${ps.because}</span></div>
+      <div class="ai-because">${ps.meaning}</div>
+      <div class="ai-tendency">${ps.tendency}</div>
+    </div>` : '';
+
+  const strongHtml = ai.strong_points?.length ? `
+    <div class="ai-section">
+      <div class="ai-section-title" style="color:#4ade80">💪 Strong Points</div>
+      ${ai.strong_points.map(sp => `
+        <div class="trait-item">
+          <div class="trait-name"><span class="strong-icon">▲</span> ${sp.name}</div>
+          <div class="ai-because">เพราะ <span>${sp.because}</span> — ${sp.meaning}</div>
+          <div class="ai-tendency">${sp.tendency}</div>
+        </div>`).join('')}
+    </div>` : '';
+
+  const weakHtml = ai.weak_points?.length ? `
+    <div class="ai-section">
+      <div class="ai-section-title" style="color:#ff4655">⚠️ Weak Points</div>
+      ${ai.weak_points.map(wp => `
+        <div class="trait-item">
+          <div class="trait-name"><span class="weak-icon">▼</span> ${wp.name}</div>
+          <div class="ai-because">เพราะ <span>${wp.because}</span> — ${wp.meaning}</div>
+          <div class="ai-tendency">${wp.tendency}</div>
+        </div>`).join('')}
+    </div>` : '';
+
+  const improveHtml = ai.improve ? `
+    <div class="ai-section">
+      <div class="ai-section-title" style="color:#facc15">📈 What to Improve</div>
+      <div class="improve-text">${ai.improve}</div>
+    </div>` : '';
+
+  return `${playstyleHtml}${strongHtml}${weakHtml}${improveHtml}`;
+}
+
+function buildPlayerSlide(s) {
+  const kdC  = parseFloat(s.kd) >= 1 ? 'good' : 'bad';
+  const hsC  = s.headshot_percent >= 25 ? 'warn' : s.headshot_percent >= 15 ? '' : 'bad';
+  const wl   = `<span class="win">${s.wins}W</span> / <span class="loss">${s.total_games - s.wins}L</span>`;
+  const img  = s.agent_image
+    ? `<img class="agent-avatar" src="${s.agent_image}" alt="${s.agent}">`
+    : `<div class="agent-avatar" style="display:flex;align-items:center;justify-content:center;font-size:1.3rem">🎮</div>`;
+
+  const achHtml = s.achievements?.length ? `
+    <div class="section">
+      <div class="section-title">🏆 Achievements</div>
+      ${s.achievements.map(a => `
+        <div class="ach-item">
+          <div class="ach-name">${a.name}</div>
+          ${a.dialogue ? `<div class="ach-dialogue">"${a.dialogue}"</div>` : ''}
+          ${a.trigger_reason ? `<div class="ach-reason">📌 ${a.trigger_reason}</div>` : ''}
+        </div>`).join('')}
+    </div>` : '';
+
+  const mkHtml  = mkBadges(s.multi_kills);
+  const clHtml  = clBadges(s.clutches || {});
+  const wpnHtml = weaponBadges(s.weapon_stats);
+  const hasMk   = mkHtml.length > 0;
+  const hasCl   = clHtml.length > 0;
+  const hasWpn  = wpnHtml.trim().length > 0;
+
+  return `
+    <div class="slide">
+      <div class="player-header">
+        ${img}
+        <div class="player-meta">
+          <div class="player-name">${s.name}</div>
+          <div class="player-agent">${s.agent || '—'}</div>
+        </div>
+        <div class="player-wl">${wl}<br><span style="color:#768079;font-size:.73rem">${s.winrate}% WR</span></div>
+      </div>
+
+      ${achHtml}
+
+      <div class="section">
+        <div class="section-title">📊 Stat Facts</div>
+        <div class="stats-grid">
+          <div class="stat-box"><div class="sbl">KDA</div><div class="sbv" style="font-size:.95rem">${s.kills}/${s.deaths}/${s.assists}</div></div>
+          <div class="stat-box"><div class="sbl">KD</div><div class="sbv ${kdC}">${s.kd}</div></div>
+          <div class="stat-box"><div class="sbl">HS%</div><div class="sbv ${hsC}">${s.headshot_percent}%</div></div>
+          <div class="stat-box wide"><div class="sbl">Avg Damage</div><div class="sbv">${s.damage_made.toLocaleString()}</div></div>
+        </div>
+        ${hasMk ? `<div class="mk-row">${mkHtml}</div>` : ''}
+        ${hasCl ? `<div class="mk-row">${clHtml}</div>` : ''}
+        ${hasWpn ? `<div class="weapon-row">${wpnHtml}</div>` : ''}
+      </div>
+
+      ${aiReportHtml(s.ai_report)}
+    </div>`;
+}
+
+function buildTeamSlide(stats, teamAnalysis, sharedGames) {
+  // Solo mode — invite to add friends
+  if (stats.length < 2) {
+    return `
+      <div class="slide">
+        <div class="team-invite">
+          <div class="team-invite-icon">🎮</div>
+          <div class="team-invite-title">อยากรู้ว่าทีมเข้ากันไหม?</div>
+          <div class="team-invite-sub">เพิ่ม Riot ID เพื่อนแล้ววิเคราะห์ใหม่<br>โค้ชจะบอกว่าทีมนี้มีแววหรือพัง 🔥</div>
+          <button class="invite-cta" onclick="inviteAddFriend()">➕ เพิ่มเพื่อนเลย</button>
+        </div>
+        <div class="donate" style="margin-top:1rem">ชอบไหม? <a href="#" target="_blank">☕ Support โค้ช</a> เพื่อใช้ unlimited</div>
+      </div>`;
+  }
+
+  const isSolo  = sharedGames.shared_count === 0;
+  const miniStr = stats.map(s => {
+    const kdC = parseFloat(s.kd) >= 1 ? 'good' : 'bad';
+    const img = s.agent_image
+      ? `<img class="mini-img" src="${s.agent_image}" alt="${s.agent}">`
+      : `<div class="mini-img" style="display:flex;align-items:center;justify-content:center;font-size:.8rem">🎮</div>`;
+    return `<div class="mini-player">${img}<span class="mini-name">${s.name}</span><span class="${kdC}">${s.kd} KD</span></div>`;
+  }).join('');
+
+  return `
+    <div class="slide">
+      <div class="hindsight${isSolo ? ' solo' : ''}">
+        ${isSolo ? '👤' : sharedGames.shared_count === 3 ? '🔥' : '⚡'} ${sharedGames.together_label}
+      </div>
+      ${miniStr}
+      ${teamAnalysis ? `<div class="team-analysis">${teamAnalysis}</div>` : ''}
+      <div class="donate">ชอบไหม? <a href="#" target="_blank">☕ Support โค้ช</a> เพื่อใช้ unlimited</div>
+    </div>`;
+}
+
+// ── Swipe support ────────────────────────────────────────
+function setupSwipe(container) {
+  let startX = 0, startY = 0;
+  container.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+  container.addEventListener('touchend', e => {
+    const dx = startX - e.changedTouches[0].clientX;
+    const dy = Math.abs(startY - e.changedTouches[0].clientY);
+    if (Math.abs(dx) > dy && Math.abs(dx) > 50) {
+      if (dx > 0 && currentSlide < totalSlides - 1) goToSlide(currentSlide + 1);
+      else if (dx < 0 && currentSlide > 0)          goToSlide(currentSlide - 1);
+    }
+  }, { passive: true });
+}
+
+
+// ── Invite helper ────────────────────────────────────────
+function inviteAddFriend() {
+  // Scroll back to input card and add a player slot
+  const card = document.querySelector('.card');
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  setTimeout(() => {
+    const count = document.querySelectorAll('.player-row').length;
+    if (count < 3) {
+      addPlayer();
+      // Focus the new input
+      const inputs = document.querySelectorAll('.player-row input');
+      inputs[inputs.length - 1]?.focus();
+    }
+  }, 400);
+}
+
+// ── Analyze ──────────────────────────────────────────────
+async function analyze() {
+  const players  = getPlayers();
+  const errorMsg = document.getElementById('errorMsg');
+  errorMsg.textContent = '';
+
+  if (!players.length) { errorMsg.textContent = 'กรุณากรอก Riot ID อย่างน้อย 1 คน'; return; }
+  if (!players.every(p => p.includes('#'))) { errorMsg.textContent = 'Riot ID ต้องมี # เช่น ZyklonHCN#A1940'; return; }
+
+  document.getElementById('analyzeBtn').disabled = true;
+  document.getElementById('loading').classList.add('show');
+  document.getElementById('slidesWrapper').classList.remove('show');
+
+  try {
+    const res  = await fetch('/api/coach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ players })
+    });
+    const data = await res.json();
+
+    if (!res.ok) { errorMsg.textContent = data.error || 'เกิดข้อผิดพลาด'; return; }
+
+    const track = document.getElementById('slidesTrack');
+    const tabs  = document.getElementById('slideTabs');
+    track.innerHTML = '';
+    tabs.innerHTML  = '';
+
+    data.stats.forEach((s, i) => {
+      const shortName = s.name.split('#')[0];
+      track.innerHTML += buildPlayerSlide(s);
+      tabs.innerHTML  += `<div class="slide-tab${i===0?' active':''}" onclick="goToSlide(${i})">👤 ${shortName}</div>`;
+    });
+
+    // Team slide — always shown (invite message if solo)
+    track.innerHTML += buildTeamSlide(data.stats, data.team_analysis, data.shared_games);
+    tabs.innerHTML  += `<div class="slide-tab" onclick="goToSlide(${data.stats.length})">🛡️ ทีม</div>`;
+    totalSlides = data.stats.length + 1;
+
+    currentSlide = 0;
+    track.style.transform = 'translateX(0)';
+    document.getElementById('slidesWrapper').classList.add('show');
+    document.getElementById('slidesWrapper').scrollIntoView({ behavior: 'smooth' });
+    setupSwipe(track.parentElement);
+
+  } catch { errorMsg.textContent = 'เชื่อมต่อไม่ได้ กรุณาลองใหม่'; }
+  finally {
+    document.getElementById('analyzeBtn').disabled = false;
+    document.getElementById('loading').classList.remove('show');
+  }
+}
+</script>
+</body>
+</html>

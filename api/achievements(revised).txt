@@ -1,0 +1,238 @@
+// ─── Achievement Definitions ──────────────────────────────────────────────────
+// แก้ name / dialogue / trigger ได้ที่นี่ไฟล์เดียว
+// condition(player, group, d) → boolean   (d = derived group stats)
+// reason(player, group, d)   → string     (trigger_reason ที่แสดงบน UI)
+// groupOnly: true             → ไม่แสดงเมื่อเล่น solo
+
+module.exports = [
+
+  // ── Solo-capable ──────────────────────────────────────────────────────────
+
+  {
+    id:        'ACH004',
+    name:      'เอาแบบ ดำเงาหรือดำด้าน?',
+    dialogue:  'หมด! หมดทุกแบบ',
+    groupOnly: false,
+    condition: (p) => ['phoenix','astra','veto',].includes(p.agent?.toLowerCase()),
+    reason:    (p) => `เล่น 1ใน agent ต่อไปนี้ Phoenix,Astra,Veto`,
+  },
+
+  {
+    id:        'ACH005',
+    name:      'เดี๋ยวกูยิงเป็นทิคแทคโทเลย',
+    dialogue:  'วางสปาต้าลง ถ้าไม่อยากแดกบาเร็ตต้ากู',
+    groupOnly: false,
+    condition: (p) => p.multi_kills['3k'] >= 2,
+    reason:    (p) => `ทำ 3K (3 kills ในรอบเดียว) ถึง ${p.multi_kills['3k']} ครั้ง`,
+  },
+
+  {
+    id:        'ACH007',
+    name:      'ใครคือสุดยอดพระเจ้า',
+    dialogue:  'พระอิศวรจงเจริญ สุดยอด',
+    groupOnly: false,
+    condition: (p) => p.multi_kills['ace'] >= 1,
+    reason:    (p) => `ทำ ACE (5 kills ในรอบเดียว) ถึง ${p.multi_kills['ace']} ครั้ง`,
+  },
+
+  {
+    id:        'ACH017',
+    name:      '40-0 นี่มึงเล่นบอลหรือเป่ากบ!?',
+    dialogue:  '',
+    groupOnly: false,
+    condition: (p) => p.per_game_kills?.some(k => k >= 40),
+    reason:    (p) => `ได้ ${Math.max(...(p.per_game_kills||[0]))} kill ในเกมเดียว`,
+  },
+
+  {
+    id:        'ACH002',
+    name:      'มันจ้าซะเหลือเกิน',
+    dialogue:  'สงสัยจะเป็นหลอดซีนอน',
+    groupOnly: false,
+    condition: (p, group, d) => {
+      const flashThreshold     = d.hasGroup ? d.avgFlash * 1.5 : 14;
+      const avgAssistThreshold = d.hasGroup ? d.avgAssists * 0.7 : 3; 
+      return p.ability_casts.q > flashThreshold && p.assists < avgAssistThreshold;
+    },
+    reason: (p, _g, d) =>
+      `ใช้ Q (flash/util) ${p.ability_casts.q} ครั้ง แต่ assist แค่ ${p.assists} (avg ทีม ${d.avgAssists?.toFixed(1) ?? '-'})`,
+  },
+
+  {
+    id:        'ACH003',
+    name:      'ลูก 357 นี่หว่า',
+    dialogue:  'ร้านเฮียฮงหลังดิโสยาม ไอ่นี่มือปืนมีนาย เด็กซุ้มแน่นอน',
+    groupOnly: false,
+    condition: (p, group, d) => {
+      if (d.hasGroup) {
+        return parseFloat(p.kd) === Math.max(...d.kdValues) &&
+               d.avgEconSpent > 0 &&
+               p.economy.avg_spent < d.avgEconSpent * 0.8;
+      }//แก้ให้เป็น avg loadout สูงกว่า avg spent 40%
+      return parseFloat(p.kd) >= 1.2 && p.headshot_percent >= 25;
+    },
+    reason: (p, _g, d) => d.hasGroup
+      ? `KD ${p.kd} สูงสุดในทีม แต่ซื้อของเฉลี่ย ${p.economy.avg_spent} (ทีม avg ${Math.round(d.avgEconSpent)})`
+      : `KD ${p.kd} + HS% ${p.headshot_percent}% — มือปืนระดับ elite`, //แก้reason ให้ตรงกับ condition
+  },
+
+  {
+    id:        'ACH009',
+    name:      'หมออออออออ',
+    dialogue:  'แต๊งยู',
+    groupOnly: false,
+    condition: (p) => ['skye','sage','mik'].includes(p.agent?.toLowerCase()) && p.ability_casts.per_game > 10,  //แก้ให้เป็นเจาะจง C ของสกาย, Eของsage, Cของmik ไม่ใช่สกิลอะไรก้ได้
+    reason:    (p) => `${p.agent} ใช้สกิล ${p.ability_casts.total} ครั้ง`,
+  },
+
+  {
+    id:        'ACH010',
+    name:      'ไอ่หมอออออ',
+    dialogue:  'ฮีลลลลลล',
+    groupOnly: false,
+    condition: (p) => ['skye','sage','kayo'].includes(p.agent?.toLowerCase()) && p.ability_casts.per_game < 4, //แก้ให้เป็นเจาะจง C ของสกาย, Eของsage, Cของmik ไม่ใช่สกิลอะไรก้ได้
+
+    reason:    (p) => `${p.agent} แต่ใช้สกิลแค่ ${p.ability_casts.total} ครั้ง`,
+  },
+
+  {
+    id:        'ACH011',
+    name:      'อาปัดชะเย',
+    dialogue:  'อาปัดติเถเถนา',
+    groupOnly: false,
+    condition: (p) => p.agent?.toLowerCase() === 'sage' && p.ability_casts.x >= 3,
+    reason:    (p) => `Sage ใช้ ultimate ถึง ${p.ability_casts.x} ครั้ง`,
+  },
+
+  {
+    id:        'ACH015',
+    name:      'Valorant กำลังร้องไห้',
+    dialogue:  'วิธีการเล่นของนาย ทำให้ RIOT เจ็บปวด',
+    groupOnly: false,
+    condition: (p, _g, d) => {
+      const healers = ['skye','sage','kayo'];
+      if (healers.includes(p.agent?.toLowerCase())) return false;
+      const threshold = d.hasGroup && d.avgCasts > 0
+        ? d.avgCasts * 0.4
+        : 4 * p.total_games;
+      return p.ability_casts.total < threshold;
+    },
+    reason: (p, _g, d) => d.hasGroup
+      ? `ใช้สกิล ${p.ability_casts.total} ครั้ง — ต่ำกว่า 40% ของ avg ทีม (${Math.round(d.avgCasts)})`
+      : `ใช้สกิลเฉลี่ยแค่ ${p.ability_casts.per_game} ครั้งต่อเกม`,
+  },
+
+  {
+    id:        'ACH016',
+    name:      'ไม่มีเวลาให้เสียใจ',
+    dialogue:  'ตอนต่อไป สุกุนะเอาจริง!',
+    groupOnly: false,
+    condition: (p) => (p.clutches['1v3']||0) + (p.clutches['1v4']||0) + (p.clutches['1v5']||0) >= 3,
+    reason:    (p) => {
+      const n = (p.clutches['1v3']||0) + (p.clutches['1v4']||0) + (p.clutches['1v5']||0);
+      return `clutch 1v3+ รวม ${n} ครั้ง`;  //ตรงนี้มันแปลกๆ clutch อาจจะ 1v4 1v5 ก็ได้ไหม ทำไมถึงบอกว่า clutch v3
+    },
+  },
+
+  // ── Group-only ─────────────────────────────────────────────────────────────
+
+  {
+    id:        'ACH001',
+    name:      'ไอ้สอง ให้พี่เดินสะดวกเถอะ',
+    dialogue:  'นี่มีดปืนไม่ได้แดกเขาหรอก',
+    groupOnly: true,
+    condition: (p, group, d) =>
+      p.deaths === Math.max(...group.map(x => x.deaths)) &&
+      p.deaths > d.avgDeaths * 1.15,
+    reason: (p, _g, d) =>
+      `ตายเฉลี่ย ${p.deaths} ครั้ง — สูงสุดในทีม (avg ทีม ${d.avgDeaths.toFixed(1)})`, //แก้เป็นรับดาเมจสูงสุดในทีม
+  },
+
+  {
+    id:        'ACH006',
+    name:      'มึงเอาไอ่เท่งมาฮาแต่เอากูมาฆ่า',
+    dialogue:  '',
+    groupOnly: true,
+    condition: (p, _g, d) => {
+      const kdGap = d.sortedKd.length >= 2 ? d.sortedKd[1] - d.sortedKd[0] : 0;
+      return parseFloat(p.kd) === Math.min(...d.kdValues) && kdGap >= 0.3;
+    },
+    reason: (p, _g, d) => {
+      const kdGap = d.sortedKd.length >= 2 ? d.sortedKd[1] - d.sortedKd[0] : 0;
+      return `KD ${p.kd} — ต่ำสุดในทีม ห่างจากคนรอง ${kdGap.toFixed(2)}`;
+    },
+  },
+
+  {
+    id:        'ACH008',
+    name:      'จะมีก็มีอยู่แผลเดียวเนี่ย ที่ไหล่',
+    dialogue:  'เมา ตกรถเมล์ แถ แท่ดๆๆๆ ร้องหยั่งหมา',
+    groupOnly: true,
+    condition: (p, group) => {
+      const max = Math.max(...group.map(x => x.damage_received));
+      return p.damage_received === max && max > 0;
+    },//แก้เป็นตายน้อยสุดในทีม
+    reason: (p) => `รับดาเมจ ${p.damage_received} avg/เกม — สูงสุดในทีม`,
+  },
+
+  {
+    id:        'ACH012',
+    name:      'กูผู้กององอาจนะเว้ย มึงต้องช่วยกูนะเว้ย',
+    dialogue:  'ผู้กองเอาปืนมา..เหลือปืนสักกระบอกก็ยังดี',
+    groupOnly: true,
+    condition: (p, _g, d) =>
+      p.kills > d.avgKills && p.deaths > d.avgDeaths && parseFloat(p.kd) < 1.0,
+    reason: (p) => `Kill ${p.kills} (สูง) แต่ Death ${p.deaths} (สูง) — KD ${p.kd} < 1`,
+  },
+
+  {
+    id:        'ACH013',
+    name:      'บาดแผลกลางหลัง',
+    dialogue:  'ถือเป็นความอับอายของนักดาบ',
+    groupOnly: true,
+    condition: (p, group, d) =>
+      p.kills === Math.max(...group.map(x => x.kills)) &&
+      parseFloat(p.kd) >= 1.5 &&
+      p.deaths <= d.avgDeaths,
+    reason: (p, _g, d) =>
+      `Kill ${p.kills} (สูงสุดทีม), KD ${p.kd}, Death ${p.deaths} ≤ avg (${d.avgDeaths.toFixed(1)})`,
+  },//แก้เป็นได้รับดาเมจ(friendly fire incoming) สูงที่สุดในกลุ่ม
+
+  {
+    id:        'ACH014',
+    name:      'คุณทาจิมาดา ทำอะไรสักอย่างสิ',
+    dialogue:  'ทำไมถึงเอาแต่ดูล่ะครับ คุณทาจิมาดา',
+    groupOnly: true,
+    condition: (p, group) => {
+      const isLowK = p.kills   === Math.min(...group.map(x => x.kills));
+      const isLowD = p.deaths  === Math.min(...group.map(x => x.deaths));
+      const isLowA = p.assists === Math.min(...group.map(x => x.assists));
+      return [isLowK, isLowD, isLowA].filter(Boolean).length >= 2;
+    },
+    reason: (p, group) => {
+      const isLowK = p.kills   === Math.min(...group.map(x => x.kills));
+      const isLowD = p.deaths  === Math.min(...group.map(x => x.deaths));
+      const isLowA = p.assists === Math.min(...group.map(x => x.assists));
+      return `ต่ำสุดในทีมใน ${[isLowK&&'Kill', isLowD&&'Death', isLowA&&'Assist'].filter(Boolean).join('/')}`;
+    },// หรือ มี AFK round มากกว่าหรือเท่ากับ 1 round 
+  },
+
+  {
+    id:        'ACH018',
+    name:      'ซมโต ซมโต๊ย ตูบายขะเนี๊ย โกเนี๊ยบายโอ้น',
+    dialogue:  'เปิดไมค์พูดตามนี้ รักษาชื่อเสียงประเทศไทยไว้',
+    groupOnly: true,
+    condition: (p) => p.botfrag_count >= 1,
+    reason:    (p) => `KD ต่ำสุดในทีม ${p.botfrag_count}/${p.total_games} เกม`,
+  },//แก้เป็น สร้าง freindlyfire damage_outgoing สูงที่สุดในกลุ่ม
+
+  {
+    id:        'ACH019',
+    name:      'หัวเน้นๆ',
+    dialogue:  'แต่เป็นหัวแม่โป้งตีน',
+    groupOnly: true,
+    condition: (p) => p.friendly_fire.outgoing > 0, //แก้เป็น legshot >= headshot
+    reason:    (p) => `ยิงใส่เพื่อน ${p.friendly_fire.outgoing} ดาเมจ`, //แก้เป็น legshot % สูงกว่า HS%
+  },
+
+];

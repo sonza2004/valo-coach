@@ -1,0 +1,10 @@
+# Local memory files (may contain credentials)
+CONTEXT.md
+
+# Excel temp files
+~$*.xlsx
+
+# Node
+node_modules/
+.env
+.env.local

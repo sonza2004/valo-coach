@@ -159,6 +159,58 @@ function assignAchievements(allFacts) {
 }
 
 // ─── AI Analysis ──────────────────────────────────────────────────────────────
+function sanitizeJsonString(str) {
+  return str
+    .replace(/[\u2018\u2019\u201C\u201D]/g, '"')
+    .replace(/\t/g, ' ')
+    .replace(/,+\s*([}\]])/g, '$1')
+    .replace(/([\{,\[]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":')
+    .trim();
+}
+
+function extractJsonSegment(raw) {
+  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (fenceMatch) return fenceMatch[1].trim();
+
+  const first = raw.indexOf('{');
+  const last = raw.lastIndexOf('}');
+  if (first !== -1 && last > first) return raw.substring(first, last + 1).trim();
+
+  return raw.trim();
+}
+
+function parseAiJson(raw) {
+  const candidate = extractJsonSegment(raw);
+  try {
+    return JSON.parse(candidate);
+  } catch (firstError) {
+    const cleaned = sanitizeJsonString(candidate);
+    try {
+      return JSON.parse(cleaned);
+    } catch (secondError) {
+      const err = new Error(`First parse: ${firstError.message}; Second parse: ${secondError.message}`);
+      err.raw = raw;
+      err.candidate = candidate;
+      err.cleaned = cleaned;
+      throw err;
+    }
+  }
+}
+
+function normalizeAiResult(parsed) {
+  if (Array.isArray(parsed)) {
+    return { players: parsed, team_analysis: null };
+  }
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return {
+      players: parsed.players || [],
+      team_analysis: parsed.team_analysis || null,
+      ...parsed,
+    };
+  }
+  return { players: [], team_analysis: null };
+}
+
 async function getStructuredAnalysis(facts, sharedGames) {
   const statsText = facts.map(s => {
     const mk  = s.multi_kills;
@@ -171,11 +223,7 @@ async function getStructuredAnalysis(facts, sharedGames) {
     const clStr = [cl['1v2']>0&&`${cl['1v2']}x 1v2`, cl['1v3']>0&&`${cl['1v3']}x 1v3`,
                    cl['1v4']>0&&`${cl['1v4']}x 1v4`, cl['1v5']>0&&`${cl['1v5']}x 1v5`]
                   .filter(Boolean).join(', ') || 'none';
-    return `Player: ${s.name} (${s.agent})
-W/L: ${s.wins}W/${s.total_games - s.wins}L | KDA: ${s.kills}/${s.deaths}/${s.assists} | KD: ${s.kd} | HS%: ${s.headshot_percent}% | DMG: ${s.damage_made} | DMG_RCV: ${s.damage_received}
-Multi-kill: ${mkStr} | Clutch: ${clStr} | Weapon: ${ws?.primary_weapon || 'unknown'} | Ability casts/game: ${ac.per_game}
-Economy avg_spent: ${s.economy.avg_spent} | avg_loadout: ${s.economy.avg_loadout}
-FF outgoing: ${s.friendly_fire.outgoing} | FF incoming: ${s.friendly_fire.incoming}`;
+    return `Player: ${s.name} (${s.agent})\nW/L: ${s.wins}W/${s.total_games - s.wins}L | KDA: ${s.kills}/${s.deaths}/${s.assists} | KD: ${s.kd} | HS%: ${s.headshot_percent}% | DMG: ${s.damage_made} | DMG_RCV: ${s.damage_received}\nMulti-kill: ${mkStr} | Clutch: ${clStr} | Weapon: ${ws?.primary_weapon || 'unknown'} | Ability casts/game: ${ac.per_game}\nEconomy avg_spent: ${s.economy.avg_spent} | avg_loadout: ${s.economy.avg_loadout}\nFF outgoing: ${s.friendly_fire.outgoing} | FF incoming: ${s.friendly_fire.incoming}`;
   }).join('\n\n');
 
   const sharedNote = sharedGames.shared_count > 0
@@ -207,46 +255,68 @@ ${sharedNote}
   "team_analysis": "<วิเคราะห์ทีม synergy จุดอ่อน โอกาสชนะ ไม่เกิน 3 ประโยค>"
 }`;
 
-  // Increase max_tokens based on number of players to prevent truncation with 3 players
   const playerCount = facts.length;
   const maxTokens = playerCount === 1 ? 2000 : playerCount === 2 ? 3000 : 4500;
-  
   console.log(`[getStructuredAnalysis] Analyzing ${playerCount} player(s) with max_tokens: ${maxTokens}`);
-  
+
   const msg = await getAnthropic().messages.create({
     model:      'claude-sonnet-4-6',
     max_tokens: maxTokens,
     messages:   [{ role: 'user', content: prompt }],
   });
 
-  const raw = msg.content[0].text.trim();
-
-  // Robust JSON extraction — handles markdown fences + text before/after JSON
-  let jsonStr = raw;
-  const mdMatch = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (mdMatch) {
-    jsonStr = mdMatch[1].trim();
-  } else {
-    const first = raw.indexOf('{'), last = raw.lastIndexOf('}');
-    if (first !== -1 && last > first) jsonStr = raw.substring(first, last + 1).trim();
-  }
+  const raw = (msg.content?.[0]?.text || '').trim();
+  const debug = {
+    raw_ai: raw,
+    parse_error: null,
+    candidate: null,
+    cleaned: null,
+    retry_raw: null,
+    retry_error: null,
+  };
 
   try {
-    return JSON.parse(jsonStr);
+    const parsed = parseAiJson(raw);
+    debug.candidate = extractJsonSegment(raw);
+    return { result: normalizeAiResult(parsed), debug };
   } catch (e) {
+    debug.parse_error = e.message;
+    debug.candidate = e.candidate;
+    debug.cleaned = e.cleaned;
     console.error('AI JSON parse error:', e.message);
-    console.error('[DEBUG] Extracted JSON string length:', jsonStr.length);
-    console.error('[DEBUG] First 500 chars:', jsonStr.slice(0, 500));
-    console.error('[DEBUG] Full raw response:', raw);
-    return {
-      players: facts.map(s => ({
-        name:          s.name,
-        playstyle:     { name: 'วิเคราะห์ไม่สำเร็จ', because: '-', meaning: '-', tendency: '-' },
-        strong_points: [], weak_points: [],
-        improve:       'ลองวิเคราะห์ใหม่อีกครั้ง',
-      })),
-      team_analysis: 'วิเคราะห์ทีมไม่สำเร็จในขณะนี้',
-    };
+    console.error('[DEBUG] Extracted candidate length:', String(e.candidate)?.length);
+    console.error('[DEBUG] Raw first 500 chars:', raw.slice(0, 500));
+
+    const recoveryPrompt = `ก่อนหน้านี้คุณตอบไม่ใช่ JSON ที่ถูกต้อง กรุณาตอบเฉพาะ JSON เท่านั้น ไม่มี markdown ไม่มีคำอธิบายเพิ่มเติม ไม่มีข้อความอื่นนอก JSON ต่อไปนี้\n\n${raw}`;
+    const retry = await getAnthropic().messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 800,
+      messages:   [{ role: 'user', content: recoveryPrompt }],
+    });
+
+    const retryRaw = (retry.content?.[0]?.text || '').trim();
+    debug.retry_raw = retryRaw;
+
+    try {
+      const parsedRetry = parseAiJson(retryRaw);
+      return { result: normalizeAiResult(parsedRetry), debug };
+    } catch (retryError) {
+      debug.retry_error = retryError.message;
+      console.error('AI JSON retry parse error:', retryError.message);
+      console.error('[DEBUG] Retry raw first 500 chars:', retryRaw.slice(0, 500));
+      return {
+        result: {
+          players: facts.map(s => ({
+            name:          s.name,
+            playstyle:     { name: 'วิเคราะห์ไม่สำเร็จ', because: '-', meaning: '-', tendency: '-' },
+            strong_points: [], weak_points: [],
+            improve:       'ลองวิเคราะห์ใหม่อีกครั้ง',
+          })),
+          team_analysis: 'วิเคราะห์ทีมไม่สำเร็จในขณะนี้',
+        },
+        debug,
+      };
+    }
   }
 }
 
@@ -306,7 +376,7 @@ module.exports = async function handler(req, res) {
     if (facts.length >= 2) facts = assignBotfragCounts(facts);
     facts = assignAchievements(facts);
 
-    const aiResult = await getStructuredAnalysis(facts, sharedGames);
+    const { result: aiResult, debug: aiDebug } = await getStructuredAnalysis(facts, sharedGames);
     facts = facts.map((s, idx) => {
       s.ai_report = aiResult.players?.find(p => p.name === s.name) ?? aiResult.players?.[idx] ?? null;
       return s;
@@ -349,12 +419,17 @@ module.exports = async function handler(req, res) {
       ai_report:        s.ai_report,
     }));
 
-    return res.status(200).json({
+    const payload = {
       stats:           clientStats,
       shared_games:    sharedGames,
       team_analysis:   aiResult.team_analysis || null,
       quota_remaining: quotaRemaining,
-    });
+    };
+    if (TEST_MODE || aiDebug?.parse_error) {
+      payload.ai_debug = aiDebug;
+    }
+
+    return res.status(200).json(payload);
 
   } catch (err) {
     console.error('Handler error:', err.message || err);

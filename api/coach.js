@@ -1,11 +1,17 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { Redis } = require('@upstash/redis');
-// ─── POI 1: buildPlayerFacts ─────────────────────────────────────────────────
-// Converts raw Henrik API match data into structured player stats (KDA, HS%, DMG, etc.)
+
+// =============================================================================
+// MODULE: Stats Fact Builder
+// Purpose: Convert raw Henrik API match data into structured player stats
+// =============================================================================
 const { buildPlayerFacts, assignBotfragCounts } = require('./statsFacts');
 const ACHIEVEMENTS = require('./achievements');
 
-// ─── Singletons ───────────────────────────────────────────────────────────────
+// =============================================================================
+// MODULE: Service Singletons
+// Purpose: Lazy-init Redis + Anthropic clients
+// =============================================================================
 let _redis = null;
 function getRedis() {
   if (!_redis) _redis = new Redis({
@@ -23,7 +29,10 @@ function getAnthropic() {
 
 const HENRIK_API_KEY = process.env.HENRIK_API_KEY;
 
-// ─── Agent Images (cached) ────────────────────────────────────────────────────
+// =============================================================================
+// MODULE: Valorant Agent Images (cached)
+// Purpose: Fetch agent icons for client display
+// =============================================================================
 let agentImageCache = null;
 async function getAgentImages() {
   if (agentImageCache) return agentImageCache;
@@ -63,9 +72,10 @@ async function getAgentImages() {
   return {};
 }
 
-// ─── POI 2: Henrik API Fetch ──────────────────────────────────────────────────
-// Fetches latest match data for a player from Henrik's Valorant API
-// Issues: Rate limiting, timeout handling, retry logic needed
+// =============================================================================
+// MODULE: Henrik API (matches)
+// Purpose: Fetch latest match data for a Riot ID
+// =============================================================================
 async function fetchPlayerMatches(name, tag) {
   const MAX_RETRIES = 2;
   const TIMEOUT_MS = 8000;
@@ -108,7 +118,10 @@ async function fetchPlayerMatches(name, tag) {
   throw new Error(`Failed to fetch ${name}#${tag}: ${lastError?.message}`);
 }
 
-// ─── Shared Game Detection ────────────────────────────────────────────────────
+// =============================================================================
+// MODULE: Shared Match Detection
+// Purpose: Detect whether players were in the same match(es)
+// =============================================================================
 function detectSharedGames(allMatchIds) {
   if (allMatchIds.length < 2) return { shared_count: 0, together_label: 'solo analysis' };
   let shared = new Set(allMatchIds[0]);
@@ -122,7 +135,10 @@ function detectSharedGames(allMatchIds) {
   };
 }
 
-// ─── Achievement Engine ───────────────────────────────────────────────────────
+// =============================================================================
+// MODULE: Achievements Engine
+// Purpose: Assign achievement badges based on derived stats (solo/group aware)
+// =============================================================================
 function assignAchievements(allFacts) {
   const group    = allFacts;
   const hasGroup = group.length >= 2;
@@ -158,202 +174,153 @@ function assignAchievements(allFacts) {
   return group;
 }
 
-// ─── AI Analysis ──────────────────────────────────────────────────────────────
-function sanitizeJsonString(str) {
-  return str
-    .replace(/[\u2018\u2019\u201C\u201D]/g, '"')
-    .replace(/\t/g, ' ')
-    .replace(/,+\s*([}\]])/g, '$1')
-    .replace(/([\{,\[]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":')
-    .trim();
+// =============================================================================
+// MODULE: AI Analysis (Anthropic)
+// Purpose: Produce structured JSON analysis for each player + team
+// =============================================================================
+function normalizePlayerKey(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/#/g, '');
 }
 
-function extractJsonSegment(raw) {
-  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (fenceMatch) return fenceMatch[1].trim();
+function extractJsonCandidate(raw) {
+  if (!raw) return '';
 
+  // Prefer fenced JSON if the model outputs it.
+  const mdMatch = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (mdMatch) return mdMatch[1].trim();
+
+  // Otherwise, find the first balanced {...} block.
   const first = raw.indexOf('{');
-  const last = raw.lastIndexOf('}');
-  if (first !== -1 && last > first) return raw.substring(first, last + 1).trim();
+  if (first === -1) return raw.trim();
 
+  let depth = 0;
+  for (let i = first; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return raw.substring(first, i + 1).trim();
+    }
+  }
+
+  // Fallback: best-effort substring using last '}'
+  const last = raw.lastIndexOf('}');
+  if (last > first) return raw.substring(first, last + 1).trim();
   return raw.trim();
 }
 
-function parseAiJson(raw) {
-  const candidate = extractJsonSegment(raw);
+function tryParseJson(jsonStr) {
+  if (!jsonStr) return null;
   try {
-    return JSON.parse(candidate);
-  } catch (firstError) {
-    const cleaned = sanitizeJsonString(candidate);
+    return JSON.parse(jsonStr);
+  } catch {
+    // Common model formatting issue: trailing commas in objects/arrays.
+    const fixed = jsonStr.replace(/,\s*([}\]])/g, '$1');
     try {
-      return JSON.parse(cleaned);
-    } catch (secondError) {
-      const err = new Error(`First parse: ${firstError.message}; Second parse: ${secondError.message}`);
-      err.raw = raw;
-      err.candidate = candidate;
-      err.cleaned = cleaned;
-      throw err;
+      return JSON.parse(fixed);
+    } catch {
+      return null;
     }
   }
 }
 
-function buildStatLine(s) {
-  const mk  = s.multi_kills;
-  const cl  = s.clutches;
-  const ws  = s.weapon_stats;
-  const ac  = s.ability_casts;
-  const mkStr = [mk['2k']>0&&`${mk['2k']}x 2K`, mk['3k']>0&&`${mk['3k']}x 3K`,
-                 mk['4k']>0&&`${mk['4k']}x 4K`, mk['ace']>0&&`${mk['ace']}x ACE`]
-                .filter(Boolean).join(', ') || 'none';
-  const clStr = [cl['1v2']>0&&`${cl['1v2']}x 1v2`, cl['1v3']>0&&`${cl['1v3']}x 1v3`,
-                 cl['1v4']>0&&`${cl['1v4']}x 1v4`, cl['1v5']>0&&`${cl['1v5']}x 1v5`]
-                .filter(Boolean).join(', ') || 'none';
-  return `Player: ${s.name} (${s.agent})\nW/L: ${s.wins}W/${s.total_games - s.wins}L | KDA: ${s.kills}/${s.deaths}/${s.assists} | KD: ${s.kd} | HS%: ${s.headshot_percent}% | DMG: ${s.damage_made} | DMG_RCV: ${s.damage_received}\nMulti-kill: ${mkStr} | Clutch: ${clStr} | Weapon: ${ws?.primary_weapon || 'unknown'} | Ability casts/game: ${ac.per_game}\nEconomy avg_spent: ${s.economy.avg_spent} | avg_loadout: ${s.economy.avg_loadout}\nFF outgoing: ${s.friendly_fire.outgoing} | FF incoming: ${s.friendly_fire.incoming}`;
-}
+async function getStructuredAnalysis(facts, sharedGames) {
+  const statsText = facts.map(s => {
+    const mk  = s.multi_kills;
+    const cl  = s.clutches;
+    const ws  = s.weapon_stats;
+    const ac  = s.ability_casts;
+    const mkStr = [mk['2k']>0&&`${mk['2k']}x 2K`, mk['3k']>0&&`${mk['3k']}x 3K`,
+                   mk['4k']>0&&`${mk['4k']}x 4K`, mk['ace']>0&&`${mk['ace']}x ACE`]
+                  .filter(Boolean).join(', ') || 'none';
+    const clStr = [cl['1v2']>0&&`${cl['1v2']}x 1v2`, cl['1v3']>0&&`${cl['1v3']}x 1v3`,
+                   cl['1v4']>0&&`${cl['1v4']}x 1v4`, cl['1v5']>0&&`${cl['1v5']}x 1v5`]
+                  .filter(Boolean).join(', ') || 'none';
+    return `Player: ${s.name} (${s.agent})
+W/L: ${s.wins}W/${s.total_games - s.wins}L | KDA: ${s.kills}/${s.deaths}/${s.assists} | KD: ${s.kd} | HS%: ${s.headshot_percent}% | DMG: ${s.damage_made} | DMG_RCV: ${s.damage_received}
+Multi-kill: ${mkStr} | Clutch: ${clStr} | Weapon: ${ws?.primary_weapon || 'unknown'} | Ability casts/game: ${ac.per_game}
+Economy avg_spent: ${s.economy.avg_spent} | avg_loadout: ${s.economy.avg_loadout}
+FF outgoing: ${s.friendly_fire.outgoing} | FF incoming: ${s.friendly_fire.incoming}`;
+  }).join('\n\n');
 
-function buildPlayerPrompt(fact, sharedGames) {
   const sharedNote = sharedGames.shared_count > 0
-    ? '\nNote: แสดงสถิติผู้เล่นในแมชเดียวกัน'
+    ? '\nNote: ผู้เล่นเล่นแมชเดียวกัน'
     : '\nNote: ผู้เล่นไม่ได้เล่นแมชเดียวกัน';
 
-  return `คุณคือโค้ช Valorant สายตรง ไม่เกรงใจ พูดตรงๆ ใช้ภาษาไทยสมัยใหม่ วิเคราะห์สถิติผู้เล่นจากข้อมูลด้านล่างโดยตรง และตอบกลับเป็น JSON object เดียวเท่านั้น ไม่มี markdown ไม่มีคำอธิบายเพิ่มเติม ไม่มีข้อความใดๆ นอก JSON
+  const prompt = `คุณคือโค้ช Valorant สายตรง ไม่เกรงใจ พูดตรงๆ ใช้ภาษาไทยสมัยใหม่ วิเคราะห์สถิติผู้เล่นและตอบเป็น JSON เท่านั้น ห้าม markdown ห้าม commentary นอก JSON ห้ามเพิ่มข้อความใดๆ นอก JSON object
 
-สถิติผู้เล่น:
-${buildStatLine(fact)}${sharedNote}
+สถิติแมชล่าสุด:
+${statsText}
+${sharedNote}
 
-ตอบ JSON นี้เท่านั้น:
+ตอบ JSON นี้เท่านั้น (ภาษาไทยพูดตรงไม่เกรงใจ สั้นกระชับ)
+เงื่อนไขสำคัญ: players ต้องมีจำนวนเท่ากับ ${facts.length} และต้องมีชื่อผู้เล่นตรงกับที่ให้ไป:
 {
-  "name": "<ชื่อผู้เล่น>",
-  "playstyle": {
-    "name": "<ชื่อสไตล์ 2-4 คำ>",
-    "because": "<stat หลักที่บ่งบอก เช่น KD 2.1, HS% 34%>",
-    "meaning": "<หมายความว่าอะไรในเกม 1 ประโยค>",
-    "tendency": "<คุณมีแนวโน้มที่จะ... 1 ประโยค>"
-  },
-  "strong_points": [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],
-  "weak_points": [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],
-  "improve": "<คำแนะนำตรงๆ 1-2 ประโยค>"
-}`;
-}
-
-function buildTeamPrompt(facts, sharedGames) {
-  const playerLines = facts.map(buildStatLine).join('\n\n');
-  const sharedNote = sharedGames.shared_count > 0
-    ? '\nNote: ทั้งทีมเล่นแมชเดียวกัน'
-    : '\nNote: ผู้เล่นไม่ได้เล่นแมชเดียวกัน';
-
-  return `คุณคือโค้ช Valorant สายตรง ไม่เกรงใจ พูดตรงๆ ใช้ภาษาไทยสมัยใหม่ วิเคราะห์ synergy จุดแข็ง จุดอ่อน และโอกาสของทีมจากสถิติด้านล่าง ตอบกลับเป็น JSON object เดียวเท่านั้น ไม่มี markdown ไม่มีคำอธิบายเพิ่มเติม ไม่มีข้อความใดๆ นอก JSON
-
-สถิติทีม:
-${playerLines}${sharedNote}
-
-ตอบ JSON นี้เท่านั้น:
-{
+  "players": [
+    {
+      "name": "<ชื่อผู้เล่น>",
+      "playstyle": {
+        "name": "<ชื่อสไตล์ 2-4 คำ>",
+        "because": "<stat หลักที่บ่งบอก เช่น KD 2.1, HS% 34%>",
+        "meaning": "<หมายความว่าอะไรในเกม 1 ประโยค>",
+        "tendency": "<คุณมีแนวโน้มที่จะ... 1 ประโยค>"
+      },
+      "strong_points": [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],
+      "weak_points":   [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],
+      "improve": "<คำแนะนำตรงๆ 1-2 ประโยค>"
+    }
+  ],
   "team_analysis": "<วิเคราะห์ทีม synergy จุดอ่อน โอกาสชนะ ไม่เกิน 3 ประโยค>"
 }`;
-}
 
-async function askAnthropicJson(prompt, maxTokens = 1200) {
+  // Increase max_tokens based on number of players to prevent truncation with 3 players
+  const playerCount = facts.length;
+  const maxTokens = playerCount === 1 ? 2200 : playerCount === 2 ? 3600 : 6500;
+  
+  console.log(`[getStructuredAnalysis] Analyzing ${playerCount} player(s) with max_tokens: ${maxTokens}`);
+  
   const msg = await getAnthropic().messages.create({
     model:      'claude-sonnet-4-6',
     max_tokens: maxTokens,
     messages:   [{ role: 'user', content: prompt }],
   });
 
-  const raw = (msg.content?.[0]?.text || '').trim();
-  const debug = {
-    raw_ai: raw,
-    parse_error: null,
-    candidate: null,
-    cleaned: null,
-    retry_raw: null,
-    retry_error: null,
-  };
+  const raw = msg.content[0].text.trim();
+
+  // Robust JSON extraction — handles markdown fences + text before/after JSON.
+  // Also uses balanced-brace slicing to avoid grabbing incomplete fragments.
+  const jsonStr = extractJsonCandidate(raw);
 
   try {
-    const parsed = parseAiJson(raw);
-    debug.candidate = extractJsonSegment(raw);
-    return { parsed, debug };
+    const parsed = tryParseJson(jsonStr);
+    if (parsed) return parsed;
+
+    throw new Error('AI JSON parse failed (invalid JSON after normalization)');
   } catch (e) {
-    debug.parse_error = e.message;
-    debug.candidate = e.candidate;
-    debug.cleaned = e.cleaned;
     console.error('AI JSON parse error:', e.message);
-    console.error('[DEBUG] Extracted candidate length:', String(e.candidate)?.length);
-    console.error('[DEBUG] Raw first 500 chars:', raw.slice(0, 500));
-
-    const recoveryPrompt = `ก่อนหน้านี้คุณตอบไม่ใช่ JSON ที่ถูกต้อง กรุณาตอบเฉพาะ JSON เท่านั้น ไม่มี markdown ไม่มีคำอธิบายเพิ่มเติม ไม่มีข้อความอื่นนอก JSON ต่อไปนี้\n\n${raw}`;
-    const retry = await getAnthropic().messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 800,
-      messages:   [{ role: 'user', content: recoveryPrompt }],
-    });
-
-    const retryRaw = (retry.content?.[0]?.text || '').trim();
-    debug.retry_raw = retryRaw;
-
-    try {
-      const parsedRetry = parseAiJson(retryRaw);
-      debug.candidate = extractJsonSegment(retryRaw);
-      return { parsed: parsedRetry, debug };
-    } catch (retryError) {
-      debug.retry_error = retryError.message;
-      console.error('AI JSON retry parse error:', retryError.message);
-      console.error('[DEBUG] Retry raw first 500 chars:', retryRaw.slice(0, 500));
-      return { parsed: null, debug };
-    }
-  }
-}
-
-async function getStructuredAnalysis(facts, sharedGames) {
-  if (facts.length === 1) {
-    const prompt = `คุณคือโค้ช Valorant สายตรง ไม่เกรงใจ พูดตรงๆ ใช้ภาษาไทยสมัยใหม่ วิเคราะห์สถิติผู้เล่นจากข้อมูลด้านล่างและตอบเป็น JSON object เดียวเท่านั้น ไม่มี markdown ไม่มีคำอธิบายเพิ่มเติม ไม่มีข้อความใดๆ นอก JSON\n\nสถิติผู้เล่น:\n${buildStatLine(facts[0])}\n\nตอบ JSON นี้เท่านั้น:\n{\n  "name": "<ชื่อผู้เล่น>",\n  "playstyle": {\n    "name": "<ชื่อสไตล์ 2-4 คำ>",\n    "because": "<stat หลักที่บ่งบอก เช่น KD 2.1, HS% 34%>",\n    "meaning": "<หมายความว่าอะไรในเกม 1 ประโยค>",\n    "tendency": "<คุณมีแนวโน้มที่จะ... 1 ประโยค>\n  },\n  "strong_points": [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],\n  "weak_points": [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],\n  "improve": "<คำแนะนำตรงๆ 1-2 ประโยค>\n}`;
-    const { parsed, debug } = await askAnthropicJson(prompt, 1400);
+    console.error('[DEBUG] Extracted JSON string length:', jsonStr.length);
+    console.error('[DEBUG] First 500 chars:', jsonStr.slice(0, 500));
+    console.error('[DEBUG] Full raw response:', raw);
     return {
-      players: parsed ? [parsed] : [{
-        name: facts[0].name,
-        playstyle: { name: 'วิเคราะห์ไม่สำเร็จ', because: '-', meaning: '-', tendency: '-' },
-        strong_points: [],
-        weak_points: [],
-        improve: 'ลองวิเคราะห์ใหม่อีกครั้ง',
-      }],
-      team_analysis: null,
-      debug,
+      players: facts.map(s => ({
+        name:          s.name,
+        playstyle:     { name: 'วิเคราะห์ไม่สำเร็จ', because: '-', meaning: '-', tendency: '-' },
+        strong_points: [], weak_points: [],
+        improve:       'ลองวิเคราะห์ใหม่อีกครั้ง',
+      })),
+      team_analysis: 'วิเคราะห์ทีมไม่สำเร็จในขณะนี้',
     };
   }
-
-  const playerReports = [];
-  const playerDebugs = [];
-  for (const fact of facts) {
-    const { parsed, debug } = await askAnthropicJson(buildPlayerPrompt(fact, sharedGames), 1200);
-    playerDebugs.push({ name: fact.name, ...debug });
-    if (parsed && parsed.name) {
-      playerReports.push(parsed);
-    } else {
-      playerReports.push({
-        name:          fact.name,
-        playstyle:     { name: 'วิเคราะห์ไม่สำเร็จ', because: '-', meaning: '-', tendency: '-' },
-        strong_points: [],
-        weak_points:   [],
-        improve:       'ลองวิเคราะห์ใหม่อีกครั้ง',
-      });
-    }
-  }
-
-  const { parsed: teamParsed, debug: teamDebug } = await askAnthropicJson(buildTeamPrompt(facts, sharedGames), 900);
-  const teamAnalysis = teamParsed?.team_analysis || 'วิเคราะห์ทีมไม่สำเร็จในขณะนี้';
-
-  return {
-    players: playerReports,
-    team_analysis: teamAnalysis,
-    debug: {
-      player_debugs: playerDebugs,
-      team_debug: teamDebug,
-    },
-  };
 }
 
-// ─── HTTP Handler ─────────────────────────────────────────────────────────────
+// =============================================================================
+// MODULE: HTTP Handler (API entrypoint)
+// Purpose: Validate input, fetch stats, run AI analysis, return JSON payload
+// =============================================================================
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin',  '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -409,9 +376,13 @@ module.exports = async function handler(req, res) {
     if (facts.length >= 2) facts = assignBotfragCounts(facts);
     facts = assignAchievements(facts);
 
-    const { result: aiResult, debug: aiDebug } = await getStructuredAnalysis(facts, sharedGames);
+    const aiResult = await getStructuredAnalysis(facts, sharedGames);
     facts = facts.map((s, idx) => {
-      s.ai_report = aiResult.players?.find(p => p.name === s.name) ?? aiResult.players?.[idx] ?? null;
+      const want = normalizePlayerKey(s.name);
+      const byName = aiResult.players?.find(p => normalizePlayerKey(p.name) === want);
+      // fallback: sometimes model drops tags (e.g. "name#tag" -> "name")
+      const byShort = aiResult.players?.find(p => normalizePlayerKey(p.name) === normalizePlayerKey(String(s.name).split('#')[0]));
+      s.ai_report = byName ?? byShort ?? aiResult.players?.[idx] ?? null;
       return s;
     });
 
@@ -452,17 +423,12 @@ module.exports = async function handler(req, res) {
       ai_report:        s.ai_report,
     }));
 
-    const payload = {
+    return res.status(200).json({
       stats:           clientStats,
       shared_games:    sharedGames,
       team_analysis:   aiResult.team_analysis || null,
       quota_remaining: quotaRemaining,
-    };
-    if (TEST_MODE || aiDebug?.parse_error) {
-      payload.ai_debug = aiDebug;
-    }
-
-    return res.status(200).json(payload);
+    });
 
   } catch (err) {
     console.error('Handler error:', err.message || err);

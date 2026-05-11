@@ -197,68 +197,63 @@ function parseAiJson(raw) {
   }
 }
 
-function normalizeAiResult(parsed) {
-  if (Array.isArray(parsed)) {
-    return { players: parsed, team_analysis: null };
-  }
-  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-    return {
-      players: parsed.players || [],
-      team_analysis: parsed.team_analysis || null,
-      ...parsed,
-    };
-  }
-  return { players: [], team_analysis: null };
+function buildStatLine(s) {
+  const mk  = s.multi_kills;
+  const cl  = s.clutches;
+  const ws  = s.weapon_stats;
+  const ac  = s.ability_casts;
+  const mkStr = [mk['2k']>0&&`${mk['2k']}x 2K`, mk['3k']>0&&`${mk['3k']}x 3K`,
+                 mk['4k']>0&&`${mk['4k']}x 4K`, mk['ace']>0&&`${mk['ace']}x ACE`]
+                .filter(Boolean).join(', ') || 'none';
+  const clStr = [cl['1v2']>0&&`${cl['1v2']}x 1v2`, cl['1v3']>0&&`${cl['1v3']}x 1v3`,
+                 cl['1v4']>0&&`${cl['1v4']}x 1v4`, cl['1v5']>0&&`${cl['1v5']}x 1v5`]
+                .filter(Boolean).join(', ') || 'none';
+  return `Player: ${s.name} (${s.agent})\nW/L: ${s.wins}W/${s.total_games - s.wins}L | KDA: ${s.kills}/${s.deaths}/${s.assists} | KD: ${s.kd} | HS%: ${s.headshot_percent}% | DMG: ${s.damage_made} | DMG_RCV: ${s.damage_received}\nMulti-kill: ${mkStr} | Clutch: ${clStr} | Weapon: ${ws?.primary_weapon || 'unknown'} | Ability casts/game: ${ac.per_game}\nEconomy avg_spent: ${s.economy.avg_spent} | avg_loadout: ${s.economy.avg_loadout}\nFF outgoing: ${s.friendly_fire.outgoing} | FF incoming: ${s.friendly_fire.incoming}`;
 }
 
-async function getStructuredAnalysis(facts, sharedGames) {
-  const statsText = facts.map(s => {
-    const mk  = s.multi_kills;
-    const cl  = s.clutches;
-    const ws  = s.weapon_stats;
-    const ac  = s.ability_casts;
-    const mkStr = [mk['2k']>0&&`${mk['2k']}x 2K`, mk['3k']>0&&`${mk['3k']}x 3K`,
-                   mk['4k']>0&&`${mk['4k']}x 4K`, mk['ace']>0&&`${mk['ace']}x ACE`]
-                  .filter(Boolean).join(', ') || 'none';
-    const clStr = [cl['1v2']>0&&`${cl['1v2']}x 1v2`, cl['1v3']>0&&`${cl['1v3']}x 1v3`,
-                   cl['1v4']>0&&`${cl['1v4']}x 1v4`, cl['1v5']>0&&`${cl['1v5']}x 1v5`]
-                  .filter(Boolean).join(', ') || 'none';
-    return `Player: ${s.name} (${s.agent})\nW/L: ${s.wins}W/${s.total_games - s.wins}L | KDA: ${s.kills}/${s.deaths}/${s.assists} | KD: ${s.kd} | HS%: ${s.headshot_percent}% | DMG: ${s.damage_made} | DMG_RCV: ${s.damage_received}\nMulti-kill: ${mkStr} | Clutch: ${clStr} | Weapon: ${ws?.primary_weapon || 'unknown'} | Ability casts/game: ${ac.per_game}\nEconomy avg_spent: ${s.economy.avg_spent} | avg_loadout: ${s.economy.avg_loadout}\nFF outgoing: ${s.friendly_fire.outgoing} | FF incoming: ${s.friendly_fire.incoming}`;
-  }).join('\n\n');
-
+function buildPlayerPrompt(fact, sharedGames) {
   const sharedNote = sharedGames.shared_count > 0
-    ? '\nNote: ผู้เล่นเล่นแมชเดียวกัน'
+    ? '\nNote: แสดงสถิติผู้เล่นในแมชเดียวกัน'
     : '\nNote: ผู้เล่นไม่ได้เล่นแมชเดียวกัน';
 
-  const prompt = `คุณคือโค้ช Valorant สายตรง ไม่เกรงใจ พูดตรงๆ ใช้ภาษาไทยสมัยใหม่ วิเคราะห์สถิติผู้เล่นและตอบเป็น JSON เท่านั้น ห้าม markdown ห้าม commentary นอก JSON ห้ามเพิ่มข้อความใดๆ นอก JSON object
+  return `คุณคือโค้ช Valorant สายตรง ไม่เกรงใจ พูดตรงๆ ใช้ภาษาไทยสมัยใหม่ วิเคราะห์สถิติผู้เล่นจากข้อมูลด้านล่างโดยตรง และตอบกลับเป็น JSON object เดียวเท่านั้น ไม่มี markdown ไม่มีคำอธิบายเพิ่มเติม ไม่มีข้อความใดๆ นอก JSON
 
-สถิติแมชล่าสุด:
-${statsText}
-${sharedNote}
+สถิติผู้เล่น:
+${buildStatLine(fact)}${sharedNote}
 
-ตอบ JSON นี้เท่านั้น (ภาษาไทยพูดตรงไม่เกรงใจ สั้นกระชับ):
+ตอบ JSON นี้เท่านั้น:
 {
-  "players": [
-    {
-      "name": "<ชื่อผู้เล่น>",
-      "playstyle": {
-        "name": "<ชื่อสไตล์ 2-4 คำ>",
-        "because": "<stat หลักที่บ่งบอก เช่น KD 2.1, HS% 34%>",
-        "meaning": "<หมายความว่าอะไรในเกม 1 ประโยค>",
-        "tendency": "<คุณมีแนวโน้มที่จะ... 1 ประโยค>"
-      },
-      "strong_points": [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],
-      "weak_points":   [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],
-      "improve": "<คำแนะนำตรงๆ 1-2 ประโยค>"
-    }
-  ],
+  "name": "<ชื่อผู้เล่น>",
+  "playstyle": {
+    "name": "<ชื่อสไตล์ 2-4 คำ>",
+    "because": "<stat หลักที่บ่งบอก เช่น KD 2.1, HS% 34%>",
+    "meaning": "<หมายความว่าอะไรในเกม 1 ประโยค>",
+    "tendency": "<คุณมีแนวโน้มที่จะ... 1 ประโยค>"
+  },
+  "strong_points": [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],
+  "weak_points": [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],
+  "improve": "<คำแนะนำตรงๆ 1-2 ประโยค>"
+}`;
+}
+
+function buildTeamPrompt(facts, sharedGames) {
+  const playerLines = facts.map(buildStatLine).join('\n\n');
+  const sharedNote = sharedGames.shared_count > 0
+    ? '\nNote: ทั้งทีมเล่นแมชเดียวกัน'
+    : '\nNote: ผู้เล่นไม่ได้เล่นแมชเดียวกัน';
+
+  return `คุณคือโค้ช Valorant สายตรง ไม่เกรงใจ พูดตรงๆ ใช้ภาษาไทยสมัยใหม่ วิเคราะห์ synergy จุดแข็ง จุดอ่อน และโอกาสของทีมจากสถิติด้านล่าง ตอบกลับเป็น JSON object เดียวเท่านั้น ไม่มี markdown ไม่มีคำอธิบายเพิ่มเติม ไม่มีข้อความใดๆ นอก JSON
+
+สถิติทีม:
+${playerLines}${sharedNote}
+
+ตอบ JSON นี้เท่านั้น:
+{
   "team_analysis": "<วิเคราะห์ทีม synergy จุดอ่อน โอกาสชนะ ไม่เกิน 3 ประโยค>"
 }`;
+}
 
-  const playerCount = facts.length;
-  const maxTokens = playerCount === 1 ? 2000 : playerCount === 2 ? 3000 : 4500;
-  console.log(`[getStructuredAnalysis] Analyzing ${playerCount} player(s) with max_tokens: ${maxTokens}`);
-
+async function askAnthropicJson(prompt, maxTokens = 1200) {
   const msg = await getAnthropic().messages.create({
     model:      'claude-sonnet-4-6',
     max_tokens: maxTokens,
@@ -278,7 +273,7 @@ ${sharedNote}
   try {
     const parsed = parseAiJson(raw);
     debug.candidate = extractJsonSegment(raw);
-    return { result: normalizeAiResult(parsed), debug };
+    return { parsed, debug };
   } catch (e) {
     debug.parse_error = e.message;
     debug.candidate = e.candidate;
@@ -299,25 +294,63 @@ ${sharedNote}
 
     try {
       const parsedRetry = parseAiJson(retryRaw);
-      return { result: normalizeAiResult(parsedRetry), debug };
+      debug.candidate = extractJsonSegment(retryRaw);
+      return { parsed: parsedRetry, debug };
     } catch (retryError) {
       debug.retry_error = retryError.message;
       console.error('AI JSON retry parse error:', retryError.message);
       console.error('[DEBUG] Retry raw first 500 chars:', retryRaw.slice(0, 500));
-      return {
-        result: {
-          players: facts.map(s => ({
-            name:          s.name,
-            playstyle:     { name: 'วิเคราะห์ไม่สำเร็จ', because: '-', meaning: '-', tendency: '-' },
-            strong_points: [], weak_points: [],
-            improve:       'ลองวิเคราะห์ใหม่อีกครั้ง',
-          })),
-          team_analysis: 'วิเคราะห์ทีมไม่สำเร็จในขณะนี้',
-        },
-        debug,
-      };
+      return { parsed: null, debug };
     }
   }
+}
+
+async function getStructuredAnalysis(facts, sharedGames) {
+  if (facts.length === 1) {
+    const prompt = `คุณคือโค้ช Valorant สายตรง ไม่เกรงใจ พูดตรงๆ ใช้ภาษาไทยสมัยใหม่ วิเคราะห์สถิติผู้เล่นจากข้อมูลด้านล่างและตอบเป็น JSON object เดียวเท่านั้น ไม่มี markdown ไม่มีคำอธิบายเพิ่มเติม ไม่มีข้อความใดๆ นอก JSON\n\nสถิติผู้เล่น:\n${buildStatLine(facts[0])}\n\nตอบ JSON นี้เท่านั้น:\n{\n  "name": "<ชื่อผู้เล่น>",\n  "playstyle": {\n    "name": "<ชื่อสไตล์ 2-4 คำ>",\n    "because": "<stat หลักที่บ่งบอก เช่น KD 2.1, HS% 34%>",\n    "meaning": "<หมายความว่าอะไรในเกม 1 ประโยค>",\n    "tendency": "<คุณมีแนวโน้มที่จะ... 1 ประโยค>\n  },\n  "strong_points": [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],\n  "weak_points": [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],\n  "improve": "<คำแนะนำตรงๆ 1-2 ประโยค>\n}`;
+    const { parsed, debug } = await askAnthropicJson(prompt, 1400);
+    return {
+      players: parsed ? [parsed] : [{
+        name: facts[0].name,
+        playstyle: { name: 'วิเคราะห์ไม่สำเร็จ', because: '-', meaning: '-', tendency: '-' },
+        strong_points: [],
+        weak_points: [],
+        improve: 'ลองวิเคราะห์ใหม่อีกครั้ง',
+      }],
+      team_analysis: null,
+      debug,
+    };
+  }
+
+  const playerReports = [];
+  const playerDebugs = [];
+  for (const fact of facts) {
+    const { parsed, debug } = await askAnthropicJson(buildPlayerPrompt(fact, sharedGames), 1200);
+    playerDebugs.push({ name: fact.name, ...debug });
+    if (parsed && parsed.name) {
+      playerReports.push(parsed);
+    } else {
+      playerReports.push({
+        name:          fact.name,
+        playstyle:     { name: 'วิเคราะห์ไม่สำเร็จ', because: '-', meaning: '-', tendency: '-' },
+        strong_points: [],
+        weak_points:   [],
+        improve:       'ลองวิเคราะห์ใหม่อีกครั้ง',
+      });
+    }
+  }
+
+  const { parsed: teamParsed, debug: teamDebug } = await askAnthropicJson(buildTeamPrompt(facts, sharedGames), 900);
+  const teamAnalysis = teamParsed?.team_analysis || 'วิเคราะห์ทีมไม่สำเร็จในขณะนี้';
+
+  return {
+    players: playerReports,
+    team_analysis: teamAnalysis,
+    debug: {
+      player_debugs: playerDebugs,
+      team_debug: teamDebug,
+    },
+  };
 }
 
 // ─── HTTP Handler ─────────────────────────────────────────────────────────────

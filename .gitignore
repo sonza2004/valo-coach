@@ -1,10 +1,11 @@
+# Keep root clean (this repo is deployed from /valo-coach on Vercel)
+node_modules/
+.env
+.env.local
+
 # Local memory files (may contain credentials)
 CONTEXT.md
 
 # Excel temp files
 ~$*.xlsx
 
-# Node
-node_modules/
-.env
-.env.local

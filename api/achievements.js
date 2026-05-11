@@ -70,7 +70,7 @@ module.exports = [
       p.economy.avg_spent > 0 &&
       p.economy.avg_loadout > p.economy.avg_spent * 1.4,
     reason: (p) =>
-      `loadout value avg = ${p.economy.avg_loadout} | spent avg = ${p.economy.avg_spent}`,
+      `ค่าเฉลี่ยอุปกรณ์ที่ใช้ avg = ${p.economy.avg_loadout} สูงกว่า| จำนวนเงินที่จ่าย avg = ${p.economy.avg_spent}`,
   },
 
   {
@@ -200,7 +200,7 @@ module.exports = [
 
   {
     id:        'ACH012',
-    name:      'กูผู้กออง อาจนะเว้ย มึงต้องช่วยกูนะเว้ย',
+    name:      'กูผู้กององอาจนะเว้ย มึงต้องช่วยกูนะเว้ย',
     dialogue:  'ผู้กองเอาปืนมา..เหลือปืนสักกระบอกก็ยังดี',
     groupOnly: true,
     condition: (p, _g, d) =>

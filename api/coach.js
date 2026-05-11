@@ -228,7 +228,47 @@ function tryParseJson(jsonStr) {
   }
 }
 
-async function getStructuredAnalysis(facts, sharedGames) {
+function formatStatsText(facts) {
+  return facts.map(s => {
+    const mk  = s.multi_kills;
+    const cl  = s.clutches;
+    const ws  = s.weapon_stats;
+    const ac  = s.ability_casts;
+    const mkStr = [mk['2k']>0&&`${mk['2k']}x 2K`, mk['3k']>0&&`${mk['3k']}x 3K`,
+                   mk['4k']>0&&`${mk['4k']}x 4K`, mk['ace']>0&&`${mk['ace']}x ACE`]
+                  .filter(Boolean).join(', ') || 'none';
+    const clStr = [cl['1v2']>0&&`${cl['1v2']}x 1v2`, cl['1v3']>0&&`${cl['1v3']}x 1v3`,
+                   cl['1v4']>0&&`${cl['1v4']}x 1v4`, cl['1v5']>0&&`${cl['1v5']}x 1v5`]
+                  .filter(Boolean).join(', ') || 'none';
+    return `Player: ${s.name} (${s.agent})
+W/L: ${s.wins}W/${s.total_games - s.wins}L | KDA: ${s.kills}/${s.deaths}/${s.assists} | KD: ${s.kd} | HS%: ${s.headshot_percent}% | DMG: ${s.damage_made} | DMG_RCV: ${s.damage_received}
+Multi-kill: ${mkStr} | Clutch: ${clStr} | Weapon: ${ws?.primary_weapon || 'unknown'} | Ability casts/game: ${ac.per_game}
+Economy avg_spent: ${s.economy.avg_spent} | avg_loadout: ${s.economy.avg_loadout}
+FF outgoing: ${s.friendly_fire.outgoing} | FF incoming: ${s.friendly_fire.incoming}`;
+  }).join('\n\n');
+}
+
+async function callClaudeJson({ prompt, maxTokens, label }) {
+  console.log(`[AI] ${label} max_tokens=${maxTokens}`);
+  const msg = await getAnthropic().messages.create({
+    model:      'claude-sonnet-4-6',
+    max_tokens: maxTokens,
+    messages:   [{ role: 'user', content: prompt }],
+  });
+
+  const raw = msg.content?.[0]?.text?.trim?.() || '';
+  const jsonStr = extractJsonCandidate(raw);
+  const parsed = tryParseJson(jsonStr);
+  if (parsed) return parsed;
+
+  console.error(`[AI] ${label} JSON parse failed`);
+  console.error('[DEBUG] Extracted JSON string length:', jsonStr.length);
+  console.error('[DEBUG] First 500 chars:', jsonStr.slice(0, 500));
+  console.error('[DEBUG] Full raw response:', raw);
+  throw new Error(`AI JSON parse failed: ${label}`);
+}
+
+async function getStructuredAnalysisBatch(facts, sharedGames) {
   const statsText = facts.map(s => {
     const mk  = s.multi_kills;
     const cl  = s.clutches;
@@ -283,28 +323,89 @@ ${sharedNote}
   
   console.log(`[getStructuredAnalysis] Analyzing ${playerCount} player(s) with max_tokens: ${maxTokens}`);
   
-  const msg = await getAnthropic().messages.create({
-    model:      'claude-sonnet-4-6',
-    max_tokens: maxTokens,
-    messages:   [{ role: 'user', content: prompt }],
-  });
+  return await callClaudeJson({ prompt, maxTokens, label: `batch:${playerCount}` });
+}
 
-  const raw = msg.content[0].text.trim();
+async function getStructuredAnalysis(facts, sharedGames) {
+  const playerCount = facts.length;
 
-  // Robust JSON extraction — handles markdown fences + text before/after JSON.
-  // Also uses balanced-brace slicing to avoid grabbing incomplete fragments.
-  const jsonStr = extractJsonCandidate(raw);
+  // Most reliable path for 3 players: analyze each player separately (short JSON),
+  // then ask a short team_analysis-only response.
+  if (playerCount >= 3) {
+    const sharedNote = sharedGames.shared_count > 0
+      ? '\nNote: ผู้เล่นเล่นแมชเดียวกัน'
+      : '\nNote: ผู้เล่นไม่ได้เล่นแมชเดียวกัน';
 
+    const perPlayer = await Promise.all(
+      facts.map(async (p) => {
+        const statsText = formatStatsText([p]);
+        const prompt = `คุณคือโค้ช Valorant สายตรง ไม่เกรงใจ พูดตรงๆ ใช้ภาษาไทยสมัยใหม่ วิเคราะห์สถิติผู้เล่นและตอบเป็น JSON เท่านั้น ห้าม markdown ห้าม commentary นอก JSON ห้ามเพิ่มข้อความใดๆ นอก JSON object
+
+สถิติแมชล่าสุด:
+${statsText}
+${sharedNote}
+
+ตอบ JSON นี้เท่านั้น:
+{
+  "players": [
+    {
+      "name": "${p.name}",
+      "playstyle": { "name": "<>", "because": "<>", "meaning": "<>", "tendency": "<>" },
+      "strong_points": [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],
+      "weak_points":   [{"name":"<>","because":"<>","meaning":"<>","tendency":"<>"}],
+      "improve": "<คำแนะนำตรงๆ 1-2 ประโยค>"
+    }
+  ]
+}`;
+
+        try {
+          const parsed = await callClaudeJson({ prompt, maxTokens: 2400, label: `player:${p.name}` });
+          const only = parsed?.players?.[0];
+          return only ? { ok: true, player: only } : { ok: false, player: null };
+        } catch {
+          return { ok: false, player: null };
+        }
+      })
+    );
+
+    const playersOut = facts.map((p, idx) => {
+      const r = perPlayer[idx];
+      if (r?.ok && r.player) return r.player;
+      return {
+        name:          p.name,
+        playstyle:     { name: 'วิเคราะห์ไม่สำเร็จ', because: '-', meaning: '-', tendency: '-' },
+        strong_points: [], weak_points: [],
+        improve:       'ลองวิเคราะห์ใหม่อีกครั้ง',
+      };
+    });
+
+    // team_analysis only (short response => less JSON risk)
+    let teamAnalysis = 'วิเคราะห์ทีมไม่สำเร็จในขณะนี้';
+    try {
+      const teamStats = formatStatsText(facts);
+      const teamPrompt = `คุณคือโค้ช Valorant สายตรง ไม่เกรงใจ พูดตรงๆ ใช้ภาษาไทยสมัยใหม่ วิเคราะห์ทีมและตอบเป็น JSON เท่านั้น ห้าม markdown ห้าม commentary นอก JSON ห้ามเพิ่มข้อความใดๆ นอก JSON object
+
+สถิติแมชล่าสุด:
+${teamStats}
+${sharedNote}
+
+ตอบ JSON นี้เท่านั้น:
+{ "team_analysis": "<วิเคราะห์ทีม synergy จุดอ่อน โอกาสชนะ ไม่เกิน 3 ประโยค>" }`;
+
+      const parsed = await callClaudeJson({ prompt: teamPrompt, maxTokens: 1200, label: 'team_analysis' });
+      if (typeof parsed?.team_analysis === 'string' && parsed.team_analysis.trim()) {
+        teamAnalysis = parsed.team_analysis.trim();
+      }
+    } catch {}
+
+    return { players: playersOut, team_analysis: teamAnalysis };
+  }
+
+  // 1–2 players: single request is fine
   try {
-    const parsed = tryParseJson(jsonStr);
-    if (parsed) return parsed;
-
-    throw new Error('AI JSON parse failed (invalid JSON after normalization)');
+    return await getStructuredAnalysisBatch(facts, sharedGames);
   } catch (e) {
-    console.error('AI JSON parse error:', e.message);
-    console.error('[DEBUG] Extracted JSON string length:', jsonStr.length);
-    console.error('[DEBUG] First 500 chars:', jsonStr.slice(0, 500));
-    console.error('[DEBUG] Full raw response:', raw);
+    console.error('AI JSON parse error (batch fallback):', e.message);
     return {
       players: facts.map(s => ({
         name:          s.name,
